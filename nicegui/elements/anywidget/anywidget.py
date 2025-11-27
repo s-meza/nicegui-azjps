@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
+from nicegui.events import GenericEventArguments
+
+from . import comm as aw_comm
+
 from ... import optional_features
 from ..mixins.value_element import ValueElement
 
@@ -44,9 +48,12 @@ class AnyWidget(ValueElement,
         :param widget: the `anywidget.AnyWidget` to wrap
         :param throttle: minimum time (in seconds) between widget updates to python (default: 0.0)
         """
-        self._widget = widget
         traits = self.get_traits(widget)
         super().__init__(value=traits, **kwargs)
+
+        self._widget = widget
+        self._widget.comm = aw_comm.create_comm(self)
+
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
         self._props['_debug'] = False  # set to True for console logging
 
@@ -56,6 +63,17 @@ class AnyWidget(ValueElement,
                 self.run_method('update_trait', {'trait': trait, 'new': change['new'], 'old': change['old']})
             self._widget.observe(update_trait, trait)
         self._update_method = 'update_traits'
+
+        self.on('_internal_anywidget_send', self._widget_send)
+
+    def _widget_send(self, content: GenericEventArguments) -> None:
+        # TODO: Figure out what to do about the javascript callbacks
+        _ret = self._widget._msg_callbacks(self._widget, *content.args)
+
+    def on_msg(self, callback, remove=False) -> None:
+        """Register the callback with this instance's anywidget.
+        Keep in mind that the callback will be called with the anywidget, not the NiceGUI element."""
+        self._widget.on_msg(callback, remove=remove)
 
     @classmethod
     def get_esm_css(cls, widget_instance: anywidget.AnyWidget) -> Tuple[str, str]:

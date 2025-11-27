@@ -73,18 +73,22 @@ export default {
             }
             this.callbacks[event]?.delete(callback);
           },
-          emit: function (event, value) {
+          emit: function (event, ...values) {
             if (this.callbacks[event]) {
-              this.callbacks[event].forEach(cb => cb(value));
+              this.callbacks[event].forEach(cb => cb(...values));
             }
           },
           send: function (content, callbacks, buffers) {
-            if (buffers) {
-              console.warn('anywidget.send() buffers are not supported in NiceGUI currently');
-            } else {
-              console.warn('anywidget.send() is not yet implemented in NiceGUI;', content);
+            if (callbacks) {
+              // I genuinely don't know what the callbacks argument is supposed to do.
+              // marimo seems to pass it to a Promise.then, but for jupyter it's a whole object
+              // with a bunch of different functions.
+              //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
+              //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
+              console.warn('model.send() callbacks are not supported in NiceGUI currently.');
+              console.warn("If you know what they're for please let me know.");
             }
-            // emit_to_py('custom', content);
+            emit_to_py('_internal_anywidget_send', content, buffers);
           }
         };
 
@@ -119,6 +123,9 @@ export default {
       // Currently unused
       this._log('handle_event', type, args);
     },
+    publish_msg({msg_type, data, metadata, buffers, keys}) {
+      this.model.emit(`msg:${data["method"]}`, data["content"], buffers)
+    }
   },
   props: {
     traits: Object,
