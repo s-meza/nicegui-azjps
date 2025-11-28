@@ -64,7 +64,7 @@ class AnyWidget(ValueElement,
             self._widget.observe(update_trait, trait)
         self._update_method = 'update_traits'
 
-        self.on('_internal_anywidget_send', self._widget_send)
+        self.on('anywidget:msg', self._widget_send)
 
     def _widget_send(self, content: GenericEventArguments) -> None:
         # TODO: Figure out what to do about the javascript callbacks

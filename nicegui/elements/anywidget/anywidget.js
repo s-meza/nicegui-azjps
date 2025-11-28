@@ -88,7 +88,7 @@ export default {
               console.warn('model.send() callbacks are not supported in NiceGUI currently.');
               console.warn("If you know what they're for please let me know.");
             }
-            emit_to_py('_internal_anywidget_send', content, buffers);
+            emit_to_py('anywidget:send', content, buffers);
           }
         };
 
