@@ -92,6 +92,23 @@ export default {
           }
         };
 
+        model.on("msg:update", (m, state) => {
+          // Handle any server-side updates
+          // TODO: Try and figure out a way to avoid infinite update loops.
+          //       I dont know if anywidget does that.
+          m._changing = true;
+          for (const [key, value] of Object.entries(state)) {
+            if (m.attributes[key] !== value) {
+              m.changes[key] = value;
+              m.attributes[key] = value;
+            }
+          }
+          for (const [key, value] of Object.entries(m.changes)) {
+            m.emit("change:" + key, value);
+          }
+          m._changing = false;
+          m.changes = {};
+        });
         // Dynamically load esm_content as an ECMAScript module
         const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
         // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
