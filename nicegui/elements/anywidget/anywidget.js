@@ -75,7 +75,7 @@ export default {
           },
           emit: function (event, ...values) {
             if (this.callbacks[event]) {
-              this.callbacks[event].forEach(cb => cb(...values));
+              this.callbacks[event].forEach(cb => cb(this, ...values));
             }
           },
           send: function (content, callbacks, buffers) {
