@@ -1,6 +1,92 @@
 import { load_widget, load_css } from "widget";  // lib/anywidget/widget.js
 import { convertDynamicProperties } from "../../static/utils/dynamic_properties.js";
 
+/**
+ * Implement AFM: https://anywidget.dev/en/afm/
+ * References:
+ * - Marimo AFM impl:
+ * https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L161-L267
+ * @param {function} emit_to_py Send a message to the python backend
+ * @param {function} log Logger
+ * @returns An AFM object
+ */
+function createModel(emit_to_py, log, traits) {
+  const model = {
+    attributes: { ...traits },
+    callbacks: {},
+    get: function (key) {
+      log('Getting value for', key, ':', this.attributes[key]);
+
+      const value = this.attributes[key];
+      try {
+        // TODO: this should not be necessary but was running into some
+        // JavaScript issues that haven't tried to figure out
+        return JSON.parse(JSON.stringify(value));
+      } catch (e) {
+        // If value is not serializable, return null or a fallback
+        console.warn('NiceGUI-Anywidget: Value for key', key, 'is not JSON-serializable:', value);
+        return null;
+      }
+    },
+
+    set: function (key, value) {
+      log('Setting value for', key, ':', value);
+      this.attributes[key] = value;
+      this.emit('change:' + key, value);
+    },
+    save_changes: function () {
+      log('Saving changes:', this.attributes);
+
+      // Trigger any change callbacks
+      if (this.callbacks['change'] && Array.isArray(this.callbacks['change'])) {
+        this.callbacks['change'].forEach((cb) => cb());
+      }
+
+      // Propagate the change back to python backend;
+      // currently serializing all traits instead of just the changed ones
+      // (ideally would do this to reduce communication overhead)
+      emit_to_py('update:traits', { ...this.attributes });
+    },
+    on: function (event, callback) {
+      log('Registering callback for event:', event);
+      if (!this.callbacks[event]) {
+        this.callbacks[event] = [];
+      }
+      this.callbacks[event].push(callback);
+    },
+    off: function (event, callback) {
+      if (!event) {
+        this.callbacks = {};
+        return;
+      }
+      if (!callback) {
+        this.callbacks[event] = [];
+        return;
+      }
+      this.callbacks[event]?.delete(callback);
+    },
+    emit: function (event, ...values) {
+      if (this.callbacks[event]) {
+        this.callbacks[event].forEach(cb => cb(this, ...values));
+      }
+    },
+    send: function (content, callbacks, buffers) {
+      if (callbacks) {
+        // I genuinely don't know what the callbacks argument is supposed to do.
+        // marimo seems to pass it to a Promise.then, but for jupyter it's a whole object
+        // with a bunch of different functions.
+        //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
+        //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
+        console.warn('model.send() callbacks are not supported in NiceGUI currently.');
+        console.warn("If you know what they're for please let me know.");
+      }
+      emit_to_py('anywidget:send', content, buffers);
+    }
+  };
+
+  return model;
+}
+
 export default {
   template: "<div></div>",
   mounted() {
@@ -17,80 +103,7 @@ export default {
         const emit_to_py = this.$emit;
         const log = this._log;
 
-        // Implement AFM: https://anywidget.dev/en/afm/
-        // References:
-        // * Marimo AFM impl:
-        // https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L161-L267
-        const model = {
-          attributes: { ...this.traits },
-          callbacks: {},
-          get: function (key) {
-            log('Getting value for', key, ':', this.attributes[key]);
-            const value = this.attributes[key];
-            try {
-              // TODO: this should not be necessary but was running into some
-              // JavaScript issues that haven't tried to figure out
-              return JSON.parse(JSON.stringify(value));
-            } catch (e) {
-              // If value is not serializable, return null or a fallback
-              console.warn('NiceGUI-Anywidget: Value for key', key, 'is not JSON-serializable:', value);
-              return null;
-            }
-          },
-          set: function (key, value) {
-            log('Setting value for', key, ':', value);
-            this.attributes[key] = value;
-            this.emit('change:' + key, value);
-          },
-          save_changes: function () {
-            log('Saving changes:', this.attributes);
-
-            // Trigger any change callbacks
-            if (this.callbacks['change'] && Array.isArray(this.callbacks['change'])) {
-              this.callbacks['change'].forEach((cb) => cb());
-            }
-
-            // Propagate the change back to python backend;
-            // currently serializing all traits instead of just the changed ones
-            // (ideally would do this to reduce communication overhead)
-            emit_to_py('update:traits', { ...this.attributes });
-          },
-          on: function (event, callback) {
-            log('Registering callback for event:', event);
-            if (!this.callbacks[event]) {
-              this.callbacks[event] = [];
-            }
-            this.callbacks[event].push(callback);
-          },
-          off: function (event, callback) {
-            if (!event) {
-              this.callbacks = {};
-              return;
-            }
-            if (!callback) {
-              this.callbacks[event] = [];
-              return;
-            }
-            this.callbacks[event]?.delete(callback);
-          },
-          emit: function (event, ...values) {
-            if (this.callbacks[event]) {
-              this.callbacks[event].forEach(cb => cb(this, ...values));
-            }
-          },
-          send: function (content, callbacks, buffers) {
-            if (callbacks) {
-              // I genuinely don't know what the callbacks argument is supposed to do.
-              // marimo seems to pass it to a Promise.then, but for jupyter it's a whole object
-              // with a bunch of different functions.
-              //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
-              //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
-              console.warn('model.send() callbacks are not supported in NiceGUI currently.');
-              console.warn("If you know what they're for please let me know.");
-            }
-            emit_to_py('anywidget:send', content, buffers);
-          }
-        };
+        const model = createModel(emit_to_py, log, this.traits);
 
         model.on("msg:update", (m, state) => {
           // Handle any server-side updates
