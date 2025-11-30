@@ -1,6 +1,7 @@
 import { load_widget, load_css } from "widget";  // lib/anywidget/widget.js
 import { convertDynamicProperties } from "../../static/utils/dynamic_properties.js";
 
+
 /**
  * Implement AFM: https://anywidget.dev/en/afm/
  * References:
@@ -12,6 +13,34 @@ import { convertDynamicProperties } from "../../static/utils/dynamic_properties.
  */
 function createModel(emit_to_py, log, traits) {
   const model = {
+    /**
+     * Whether the current change was triggered by a server update.
+     * TODO: Is this necessary?
+     */
+    _changing_from_server: false,
+    /**
+     * Should be true if model.set is triggering callbacks
+     * TODO: Jupyter seems to set this externally?
+     * @type {boolean}
+     */
+    _changing: false,
+    /**
+     * Changes that have been made, should reset when uploaded to the backend
+     * @type {Object<string, any>}
+     */
+    _changes: {},
+
+    // TODO: We can also keep track of the state diff and the state diff which has been synced.
+    //  See: https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L445-L465
+    //  See: https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L632-L655
+
+    /**
+     * State prior to backend update.
+     * https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L424-L436
+     * @type {Object<string, any>?}
+     */
+    _state_lock: null,
+
     attributes: { ...traits },
     callbacks: {},
     get: function (key) {
@@ -31,16 +60,19 @@ function createModel(emit_to_py, log, traits) {
 
     set: function (key, value) {
       log('Setting value for', key, ':', value);
+
+      this._changing = true;
+      // TODO: Delegate to other function.
+      // XXX: Good reference: https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/base/src/backbone-patch.ts
       this.attributes[key] = value;
-      this.emit('change:' + key, value);
+      this.emit('change:' + key, value); // TODO: state_lock stuff.
+
+      this._changing = false;
     },
+
+    /** Upload changes to python */
     save_changes: function () {
       log('Saving changes:', this.attributes);
-
-      // Trigger any change callbacks
-      if (this.callbacks['change'] && Array.isArray(this.callbacks['change'])) {
-        this.callbacks['change'].forEach((cb) => cb());
-      }
 
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
@@ -65,11 +97,13 @@ function createModel(emit_to_py, log, traits) {
       }
       this.callbacks[event]?.delete(callback);
     },
+
     emit: function (event, ...values) {
       if (this.callbacks[event]) {
         this.callbacks[event].forEach(cb => cb(this, ...values));
       }
     },
+
     send: function (content, callbacks, buffers) {
       if (callbacks) {
         // I genuinely don't know what the callbacks argument is supposed to do.
@@ -80,9 +114,23 @@ function createModel(emit_to_py, log, traits) {
         console.warn('model.send() callbacks are not supported in NiceGUI currently.');
         console.warn("If you know what they're for please let me know.");
       }
+
       emit_to_py('anywidget:send', content, buffers);
     }
   };
+
+
+  model.on("msg:update", (m, new_state) => {
+    // Handle any server-side updates
+    // TODO: Try and figure out a way to avoid infinite update loops.
+    //       I dont know if anywidget does that.
+    for (const [key, value] of Object.entries(new_state)) {
+      if (m.attributes[key] !== value) {
+        // TODO: These should be m.set() calls.
+        m.set(key, value);
+      }
+    }
+  });
 
   return model;
 }
@@ -98,6 +146,7 @@ export default {
         console.log("NiceGUI-Anywidget", ...args);
       }
     },
+
     init_widget() {
       (async () => {
         const emit_to_py = this.$emit;
@@ -105,23 +154,6 @@ export default {
 
         const model = createModel(emit_to_py, log, this.traits);
 
-        model.on("msg:update", (m, state) => {
-          // Handle any server-side updates
-          // TODO: Try and figure out a way to avoid infinite update loops.
-          //       I dont know if anywidget does that.
-          m._changing = true;
-          for (const [key, value] of Object.entries(state)) {
-            if (m.attributes[key] !== value) {
-              m.changes[key] = value;
-              m.attributes[key] = value;
-            }
-          }
-          for (const [key, value] of Object.entries(m.changes)) {
-            m.emit("change:" + key, value);
-          }
-          m._changing = false;
-          m.changes = {};
-        });
         // Dynamically load esm_content as an ECMAScript module
         const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
         // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
@@ -132,19 +164,27 @@ export default {
 
       load_css(this.css_content, this.traits["_anywidget_id"]);
 
-      // If you have an API to add listeners, do so here (placeholder)
-      // this.api.addGlobalListener(this.handle_event);
     },
+
+    /**
+     * Callback from Python traitlet backend change event
+     * @param {Object} change
+     * @param {string} change.trait
+     * @param {any} change.new
+     * @param {any} change.old
+     */
     update_trait(change) {
-      // Callback from Python traitlet backend change event
-      // change is a dictionary with 'trait', 'new', and 'old' keys
       convertDynamicProperties(change, true);
+
       this._log('Updating trait:', change);
+
       if (change) {
-        this.model.attributes[change['trait']] = change['new'];
-        this.model.emit("change:" + change['trait'], change['new']);
+        this.model._changing_from_server = true;
+        this.model.set(change['trait'], change['new']);
+        this.model._changing_from_server = false;
       }
     },
+
     update_traits() {
       // Currently no-op
       this._log('Updating traits:', this.traits, this.model.attributes);
@@ -154,6 +194,7 @@ export default {
       this._log('handle_event', type, args);
     },
     publish_msg({msg_type, data, metadata, buffers, keys}) {
+      // TODO: Handle data.method update,echo_update, and custom separately.
       this.model.emit(`msg:${data["method"]}`, data["content"], buffers)
     }
   },
