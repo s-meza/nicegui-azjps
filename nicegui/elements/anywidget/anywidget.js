@@ -1,17 +1,90 @@
 import { load_widget, load_css } from "widget";  // lib/anywidget/widget.js
 import { convertDynamicProperties } from "../../static/utils/dynamic_properties.js";
 
+/**
+ * Communication layer for anywidget models.
+ *
+ * @class
+ * @classdesc
+ * Comm is responsible for handling messages between the frontend model and the Python backend
+ * via the emit_to_py callback. Used for synchronizing widget state and sending/receiving
+ * protocol messages.
+ *
+ * @property {Object} model
+ * @property {(eventType: string, ...args: any[]) => void} emit_to_py E.g. this.$emit
+ * @property {(...args: any[]) => void} log
+ * @property {string|null} comm_id Null until updated by the server
+ */
+class Comm {
+  /**
+   * Create a new Comm instance.
+   * @param {Object} model
+   * @param {(eventType: string, ...args: any[]) => void} emit_to_py E.g. this.$emit
+   * @param {null|(...args: any[]) => void} log
+   */
+  constructor(model, emit_to_py, log) {
+    this.model = model;
+    this.emit_to_py = emit_to_py;
+    this.log = log || (()=>{});
+    this.comm_id = null;
+  }
+
+  recv_msg({msg_type, data, metadata, buffers, comm_id}) {
+    this.log(`[${this.comm_id||"?"}] Received message:`, {msg_type, data, metadata, buffers, comm_id});
+    console.log(`[${this.comm_id||"?"}] Received message:`, {msg_type, data, metadata, buffers, comm_id});
+
+    if (this.comm_id != null && this.comm_id !== comm_id) {
+      return;
+    }
+
+    switch (msg_type) {
+      case "comm_open":
+        if (this.comm_id != null) {
+          break;
+        }
+        this.comm_id = comm_id;
+        break;
+      case "comm_msg":
+        switch (data.method) {
+          case "update":
+            this.model.set_state(data.state);
+            break;
+          case "echo_update":
+            // This seems to be an implementation detail from jupyter?
+            // I think it just sends back the state in case there are multiple front ends.
+            console.log("Comm echo_update not implemented yet")
+            break;
+          case "custom":
+            this.emit('msg:custom', data, buffers);
+            console.log("Comm custom not implemented yet")
+            break;
+        }
+        // if method == update, do a model update from serverside.
+        // if method == echo_update, figure out what that does.
+        // if method == custom, run handlers.
+        break;
+      default:
+        console.warn('Unknown message type:', msg_type, ' for ', {msg_type, data, metadata, buffers, comm_id});
+        break;
+    }
+  }
+
+  send_msg(msg) {
+    console.log('send_msg', msg);
+  }
+}
 
 /**
  * Implement AFM: https://anywidget.dev/en/afm/
  * References:
  * - Marimo AFM impl:
  * https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L161-L267
+ * @param {function} on_ready Callback when the widget is ready to render (i.e. state is set)
  * @param {function} emit_to_py Send a message to the python backend
  * @param {function} log Logger
  * @returns An AFM object
  */
-function createModel(emit_to_py, log, traits) {
+function createModel(on_ready, emit_to_py, log, traits) {
   const model = {
     /**
      * Whether the current change was triggered by a server update.
@@ -41,7 +114,10 @@ function createModel(emit_to_py, log, traits) {
      */
     _state_lock: null,
 
-    attributes: { ...traits },
+    /** @type {Comm} */
+    _comm: new Comm(this, emit_to_py, log),
+
+    attributes: null, // Will wait for update message instead.
     callbacks: {},
     get: function (key) {
       log('Getting value for', key, ':', this.attributes[key]);
@@ -52,7 +128,7 @@ function createModel(emit_to_py, log, traits) {
         // JavaScript issues that haven't tried to figure out
         return JSON.parse(JSON.stringify(value));
       } catch (e) {
-        // If value is not serializable, return null or a fallback
+        // If value is not serializable, return null or a fallback render widget until we have a connection from the server.
         console.warn('NiceGUI-Anywidget: Value for key', key, 'is not JSON-serializable:', value);
         return null;
       }
@@ -65,9 +141,32 @@ function createModel(emit_to_py, log, traits) {
       // TODO: Delegate to other function.
       // XXX: Good reference: https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/base/src/backbone-patch.ts
       this.attributes[key] = value;
-      this.emit('change:' + key, value); // TODO: state_lock stuff.
+      this.emit('change:' + key, this, value); // TODO: state_lock stuff.
 
       this._changing = false;
+    },
+
+    set_state: function (state) {
+      // Initial server state.
+      if (this.attributes === null) {
+        this.attributes = { ...state };
+        on_ready(this);
+        return;
+      }
+
+      log('Received updated state', state);
+      this._changing_from_server = true;
+      // TODO: Proper handling for server updates: don't send things back when save_changes is called.
+      //       Jupyter seems to keep track of the diffs.
+      // TODO: Proper handling for recursive updates.
+      // TODO: Maybe send just a diff so it doesn't have to iterate over all attributes.
+      //       Jupyter seems to use underscore.js (although someone on stackoverflow suggested lodash)
+
+      for (const [key, value] of Object.entries(state)) {
+        this.set(key, value);
+      }
+
+      this._changing_from_server = false;
     },
 
     /** Upload changes to python */
@@ -100,7 +199,7 @@ function createModel(emit_to_py, log, traits) {
 
     emit: function (event, ...values) {
       if (this.callbacks[event]) {
-        this.callbacks[event].forEach(cb => cb(this, ...values));
+        this.callbacks[event].forEach(cb => cb(...values));
       }
     },
 
@@ -136,7 +235,7 @@ function createModel(emit_to_py, log, traits) {
 }
 
 export default {
-  template: "<div></div>",
+  template: "<div>Waiting for backend connection...</div>",
   mounted() {
     this.init_widget();
   },
@@ -152,14 +251,31 @@ export default {
         const emit_to_py = this.$emit;
         const log = this._log;
 
-        const model = createModel(emit_to_py, log, this.traits);
+        let on_widget_ready;
 
-        // Dynamically load esm_content as an ECMAScript module
-        const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
-        // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
-        this.cleanup_widget = await mod.initialize?.({ model: model });
-        this.cleanup_view = await mod.render?.({ model: model, el: this.$el });
+        // Don't render widget until we have a connection from the server.
+        this._waitForComm = new Promise((resolve) => {
+          on_widget_ready = resolve;
+        }).then(async (m) => {
+          console.log("hiiii");
+          // Dynamically load esm_content as an ECMAScript module
+          const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
+
+          // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
+          this.cleanup_widget = await mod.initialize?.({ model: m });
+          this.cleanup_view = await mod.render?.({ model: m, el: this.$el });
+
+          this._waitForComm = null;
+          on_widget_ready = null;
+        });
+
+        if (!on_widget_ready) {
+          throw new Error("Promise executor did not run");
+        }
+
+        const model = createModel(on_widget_ready, emit_to_py, log, this.traits);
         this.model = model;
+       // on_widget_ready(model)
       })();
 
       load_css(this.css_content, this.traits["_anywidget_id"]);
@@ -193,9 +309,10 @@ export default {
       // Currently unused
       this._log('handle_event', type, args);
     },
-    publish_msg({msg_type, data, metadata, buffers, keys}) {
+    publish_msg(msg) {
+      console.log('publish_msg', msg);
       // TODO: Handle data.method update,echo_update, and custom separately.
-      this.model.emit(`msg:${data["method"]}`, data["content"], buffers)
+      this.model._comm.recv_msg(msg)
     }
   },
   props: {
