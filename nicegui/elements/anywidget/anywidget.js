@@ -57,7 +57,7 @@ class Comm {
             console.warn("Comm echo_update not implemented yet")
             break;
           case "custom":
-            this.emit('msg:custom', data, buffers);
+            this.model.emit('msg:custom', data, buffers);
             console.warn("Comm custom not implemented yet")
             break;
         }
