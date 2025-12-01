@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
 from nicegui.events import GenericEventArguments
+from ipywidgets.widgets.widget import _remove_buffers, __protocol_version__
 
 from . import comm as aw_comm
 
@@ -18,6 +19,10 @@ if importlib.util.find_spec('anywidget'):
     if TYPE_CHECKING:
         import anywidget
 
+
+# Current limitation: Right now this is replacing the global create_comm and createa_comm_manager machinery
+# This means that registered targets don't run. and comms cannot be created from the frontend.
+# I think we could implement the create_comm and create_comm_manager functions by adding a register_element(id, Element) method to the CommManager singleton. This way new comms made for a specific element will have their messages sent to that element, and will be able to communicate back.
 
 class AnyWidget(ValueElement,
                 component='anywidget.js',
@@ -52,10 +57,20 @@ class AnyWidget(ValueElement,
         super().__init__(value=traits, **kwargs)
 
         self._widget = widget
-        # TODO: Revisit comm implementation
-        #       - The comm should keep a GUID
-        #       - The widget should not render until it has received the comm open and created its own.
-        self._widget.comm = aw_comm.create_comm(self)
+
+        # TODO: Tidy this up
+        state, buffer_paths, buffers = _remove_buffers(self._widget.get_state())
+
+        args = dict(target_name='jupyter.widget',
+            data={'state': state, 'buffer_paths': buffer_paths},
+            buffers=buffers,
+            metadata={'version': __protocol_version__}
+            )
+
+        self._widget.comm = aw_comm.create_comm(self, **args)
+
+        # Okay so BaseComm.open() is called automatically. And that registers my comm.
+        # self._widget.handle_comm_opened(self._widget.comm, traits)
 
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
 
@@ -72,7 +87,8 @@ class AnyWidget(ValueElement,
         #              * https://ipywidgets.readthedocs.io/en/latest/examples/Widget%20Low%20Level.html#synchronized-state
         for trait in traits:
             def update_trait(change, trait=trait):
-                self.run_method('update_trait', {'trait': trait, 'new': change['new'], 'old': change['old']})
+                # self.run_method('update_trait', {'trait': trait, 'new': change['new'], 'old': change['old']})
+                self._widget.send_state()
             self._widget.observe(update_trait, trait)
         self._update_method = 'update_traits'
         #-----

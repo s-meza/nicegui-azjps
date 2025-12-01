@@ -4,20 +4,22 @@ import comm
 from nicegui.element import Element
 from uuid import UUID, uuid4
 
-def create_comm(element: Element):
-    return Comm(element)
+def create_comm(element: Element, **kwargs):
+    return Comm(element, **kwargs)
 
 # NOTE: Jupyter makes this a traitlets.config.LoggingConfigurable. Should we?
 class Comm(comm.BaseComm):
     element: Element
     comm_id: UUID
 
-    def __init__(self, element: Element):
+    def __init__(self, element: Element, **kwargs):
+        # super's init tries to call self.publish_msg so we must set element beforehand.
         self.element = element
-        self.comm_id = str(uuid4())
 
-        # super's init tries to call self.publish_msg so set element before
-        super().__init__()
+        if 'comm_id' not in kwargs:
+            kwargs['comm_id'] = str(uuid4())
+
+        super().__init__(**kwargs)
 
     def publish_msg(self, msg_type, data=None, metadata=None, buffers=None, **keys):
         # Based on ipykernel https://github.com/ipython/ipykernel/blob/main/ipykernel/comm/comm.py#L18-L45

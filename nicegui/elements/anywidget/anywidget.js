@@ -43,6 +43,8 @@ class Comm {
           break;
         }
         this.comm_id = comm_id;
+        this.model.set_state(data.state);
+        // TODO: Set target name, buffer paths, buffers, metadata
         break;
       case "comm_msg":
         switch (data.method) {
@@ -52,11 +54,11 @@ class Comm {
           case "echo_update":
             // This seems to be an implementation detail from jupyter?
             // I think it just sends back the state in case there are multiple front ends.
-            console.log("Comm echo_update not implemented yet")
+            console.warn("Comm echo_update not implemented yet")
             break;
           case "custom":
             this.emit('msg:custom', data, buffers);
-            console.log("Comm custom not implemented yet")
+            console.warn("Comm custom not implemented yet")
             break;
         }
         // if method == update, do a model update from serverside.
@@ -70,7 +72,9 @@ class Comm {
   }
 
   send_msg(msg) {
+    // TODO: Is this correct?
     console.log('send_msg', msg);
+    this.emit_to_py('anywidget:msg', msg);
   }
 }
 
@@ -115,7 +119,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
     _state_lock: null,
 
     /** @type {Comm} */
-    _comm: new Comm(this, emit_to_py, log),
+    _comm: new Comm(null, emit_to_py, log),
 
     attributes: null, // Will wait for update message instead.
     callbacks: {},
@@ -217,6 +221,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
       emit_to_py('anywidget:send', content, buffers);
     }
   };
+  model._comm.model = model;
 
 
   model.on("msg:update", (m, new_state) => {
@@ -257,9 +262,10 @@ export default {
         this._waitForComm = new Promise((resolve) => {
           on_widget_ready = resolve;
         }).then(async (m) => {
-          console.log("hiiii");
           // Dynamically load esm_content as an ECMAScript module
           const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
+
+          this.$el.innerHTML = "";
 
           // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
           this.cleanup_widget = await mod.initialize?.({ model: m });
@@ -310,8 +316,6 @@ export default {
       this._log('handle_event', type, args);
     },
     publish_msg(msg) {
-      console.log('publish_msg', msg);
-      // TODO: Handle data.method update,echo_update, and custom separately.
       this.model._comm.recv_msg(msg)
     }
   },
