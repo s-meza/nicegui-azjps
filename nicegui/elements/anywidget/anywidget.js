@@ -240,7 +240,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
 }
 
 export default {
-  template: "<div>Waiting for backend connection...</div>",
+  template: "<div>[NiceGUI-AnyWidget: Waiting for backend connection...]</div>",
   mounted() {
     this.init_widget();
   },
