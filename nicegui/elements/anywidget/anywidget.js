@@ -247,7 +247,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
 }
 
 export default {
-  template: "<div>[NiceGUI-AnyWidget: Waiting for backend connection...]</div>",
+  template: '<div class="nicegui-not-loaded">[NiceGUI-AnyWidget: Waiting for backend connection...]</div>',
   mounted() {
     this.init_widget();
   },
@@ -273,6 +273,7 @@ export default {
           const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
 
           this.$el.innerHTML = "";
+          this.$el.classList.remove("nicegui-not-loaded");
 
           // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
           this.cleanup_widget = await mod.initialize?.({ model: m });
