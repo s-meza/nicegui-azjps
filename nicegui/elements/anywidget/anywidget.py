@@ -93,12 +93,17 @@ class AnyWidget(ValueElement,
         self._update_method = 'update_traits'
         #-----
 
-        # TODO: Different message for a state update?
         self.on('anywidget:msg', self._widget_send)
+        self.on('anywidget:save_changes', self._widget_save_changes)
 
     def _widget_send(self, content: GenericEventArguments) -> None:
         # TODO: Figure out what to do about the javascript callbacks
         _ret = self._widget._msg_callbacks(self._widget, *content.args)
+
+    def _widget_save_changes(self, content: GenericEventArguments) -> None:
+        # Set state checks the keys so it's okay to send extra stuff
+        # It also uses a context manager to avoid sending events back
+        self._widget.set_state(content.args)
 
     def on_msg(self, callback, remove=False) -> None:
         """Register the callback with this instance's anywidget.

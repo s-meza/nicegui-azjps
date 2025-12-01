@@ -175,12 +175,17 @@ function createModel(on_ready, emit_to_py, log, traits) {
 
     /** Upload changes to python */
     save_changes: function () {
+      if (this.attributes === null) {
+        throw new Error("NiceGUI-Anywidget: save_changes was called before widget was ready (was comm opened?)");
+      }
+
       log('Saving changes:', this.attributes);
 
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
       // (ideally would do this to reduce communication overhead)
-      emit_to_py('update:traits', { ...this.attributes });
+      // This should not run any model.on("change:") callbacks on the frontend.
+      emit_to_py('anywidget:save_changes',  this.attributes );
     },
     on: function (event, callback) {
       log('Registering callback for event:', event);
@@ -214,6 +219,8 @@ function createModel(on_ready, emit_to_py, log, traits) {
         // with a bunch of different functions.
         //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
         //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
+        // Possible implementation: Attach an id to the message, save the callbacks in a Map with that id.
+        // If we receive a comm message with that id and a return value, run the callbacks.
         console.warn('model.send() callbacks are not supported in NiceGUI currently.');
         console.warn("If you know what they're for please let me know.");
       }
