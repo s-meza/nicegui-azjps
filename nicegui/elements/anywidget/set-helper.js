@@ -68,9 +68,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 */
 
-// TODO: Figure how to set up npm to import
-// import { isEqual } from 'lodash/isEqual';
-import 'lodash-core';
+import { isEqual, isObject } from 'nicegui-anywidget';
 
 // Set a hash of model attributes on the object, firing `"change"`. This is
 // the core primitive operation of a model, updating the data and notifying
@@ -89,7 +87,7 @@ export function set(model, key, val){
   // Handle both `"key", value` and `{key: value}` -style arguments.
   /** @type {{[key: string]: any}} */
   let attrs
-  if (_.isObject(key)) {
+  if (isObject(key)) {
     attrs = key;
   } else {
     (attrs = {})[key] = val;
@@ -114,10 +112,10 @@ export function set(model, key, val){
     // For each `set` attribute, update or delete the current value.
     for (const attr in attrs) {
       val = attrs[attr];
-      if (!_.isEqual(current[attr], val)) {
+      if (!isEqual(current[attr], val)) {
         changes.push(attr);
       }
-      if (!_.isEqual(prev[attr], val)) {
+      if (!isEqual(prev[attr], val)) {
         changed[attr] = val;
       } else {
         delete changed[attr];
