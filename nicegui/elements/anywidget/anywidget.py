@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Tuple
 from nicegui.events import GenericEventArguments
 from ipywidgets.widgets.widget import _remove_buffers, __protocol_version__
 
+from contextlib import contextmanager
+
 from . import comm as aw_comm
 
 from ... import optional_features
@@ -72,6 +74,7 @@ class AnyWidget(ValueElement,
         # Okay so BaseComm.open() is called automatically. And that registers my comm.
         # self._widget.handle_comm_opened(self._widget.comm, traits)
 
+        self._should_send_update = True
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
 
         self._props['_debug'] = False  # set to True for console logging
@@ -87,8 +90,10 @@ class AnyWidget(ValueElement,
         #              * https://ipywidgets.readthedocs.io/en/latest/examples/Widget%20Low%20Level.html#synchronized-state
         for trait in traits:
             def update_trait(change, trait=trait):
-                # self.run_method('update_trait', {'trait': trait, 'new': change['new'], 'old': change['old']})
-                self._widget.send_state()
+                # TODO: What happens if a python observer modifies the value while the state is updating?
+                #       Maybe I should compare against a state lock or whatever?
+                if self._should_send_update:
+                    self._widget.send_state()
             self._widget.observe(update_trait, trait)
         self._update_method = 'update_traits'
         #-----
@@ -96,14 +101,22 @@ class AnyWidget(ValueElement,
         self.on('anywidget:msg', self._widget_send)
         self.on('anywidget:save_changes', self._widget_save_changes)
 
+    @contextmanager
+    def _dont_send_updates(self):
+        self._should_send_update = False
+        yield
+        self._should_send_update = True
+
     def _widget_send(self, content: GenericEventArguments) -> None:
         # TODO: Figure out what to do about the javascript callbacks
         _ret = self._widget._msg_callbacks(self._widget, *content.args)
 
     def _widget_save_changes(self, content: GenericEventArguments) -> None:
-        # Set state checks the keys so it's okay to send extra stuff
-        # It also uses a context manager to avoid sending events back
-        self._widget.set_state(content.args)
+        # Set state checks the keys so it's okay to send a dictionary with extra stuff
+        # It also uses a context manager to avoid sending events back,
+        # but our own trait handler might send them back so we ALSO need a context manager.
+        with self._dont_send_updates():
+            self._widget.set_state(content.args)
 
     def on_msg(self, callback, remove=False) -> None:
         """Register the callback with this instance's anywidget.
