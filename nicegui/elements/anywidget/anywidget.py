@@ -80,44 +80,17 @@ class AnyWidget(ValueElement,
 
         self._props['_debug'] = False  # set to True for console logging
 
-        # Observe all widget traits and fire update_trait() JS method when changed in python
-        #----- TODO: The jupyter model is:
-        #              - There is no one true state.
-        #              - The state is duplicated across backend and frontend.
-        #              - When the state is changed, that end sends a comm to the other end
-        #            I think that this should be replaced by a send_state or similar.
-        #            References:
-        #              * https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/base/src/widget.ts#L330
-        #              * https://ipywidgets.readthedocs.io/en/latest/examples/Widget%20Low%20Level.html#synchronized-state
-        for trait in traits:
-            def update_trait(change, trait=trait):
-                # TODO: What happens if a python observer modifies the value while the state is updating?
-                #       Maybe I should compare against a state lock or whatever?
-                if self._should_send_update:
-                    self._widget.send_state()
-            self._widget.observe(update_trait, trait)
-        self._update_method = 'update_traits'
-        #-----
-
         self.on('anywidget:msg', self._widget_send)
         self.on('anywidget:save_changes', self._widget_save_changes)
-
-    @contextmanager
-    def _dont_send_updates(self):
-        self._should_send_update = False
-        yield
-        self._should_send_update = True
 
     def _widget_send(self, content: GenericEventArguments) -> None:
         # TODO: Figure out what to do about the javascript callbacks
         _ret = self._widget._msg_callbacks(self._widget, *content.args)
 
     def _widget_save_changes(self, content: GenericEventArguments) -> None:
-        # Set state checks the keys so it's okay to send a dictionary with extra stuff
+        # ipywidget.set_state handles extra keys in the dict fine.
         # It also uses a context manager to avoid sending events back,
-        # but our own trait handler might send them back so we ALSO need a context manager.
-        with self._dont_send_updates():
-            self._widget.set_state(content.args)
+        self._widget.set_state(content.args)
 
     def on_msg(self, callback, remove=False) -> None:
         """Register the callback with this instance's anywidget.
