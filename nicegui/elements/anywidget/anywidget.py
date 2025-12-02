@@ -26,7 +26,7 @@ if importlib.util.find_spec('anywidget'):
 
 class AnyWidget(ValueElement,
                 component='anywidget.js',
-                dependencies=['widget.js'],
+                dependencies=['widget.js', 'set-helper.js', 'lodash-core.js'],
                 default_classes='nicegui-anywidget'):
 
     VALUE_PROP: str = 'traits'

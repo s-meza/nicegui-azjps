@@ -1,5 +1,6 @@
 import { load_widget, load_css } from "widget";  // lib/anywidget/widget.js
 import { convertDynamicProperties } from "../../static/utils/dynamic_properties.js";
+import { set as set_helper } from "set-helper";
 
 /**
  * Communication layer for anywidget models.
@@ -139,15 +140,8 @@ function createModel(on_ready, emit_to_py, log, traits) {
     },
 
     set: function (key, value) {
-      log('Setting value for', key, ':', value);
-
-      this._changing = true;
-      // TODO: Delegate to other function.
-      // XXX: Good reference: https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/base/src/backbone-patch.ts
-      this.attributes[key] = value;
-      this.emit('change:' + key, this, value); // TODO: state_lock stuff.
-
-      this._changing = false;
+      const ret = set_helper(this, key, value);
+      return ret;
     },
 
     set_state: function (state) {
@@ -159,18 +153,14 @@ function createModel(on_ready, emit_to_py, log, traits) {
       }
 
       log('Received updated state', state);
-      this._changing_from_server = true;
       // TODO: Proper handling for server updates: don't send things back when save_changes is called.
       //       Jupyter seems to keep track of the diffs.
       // TODO: Proper handling for recursive updates.
+
       // TODO: Maybe send just a diff so it doesn't have to iterate over all attributes.
       //       Jupyter seems to use underscore.js (although someone on stackoverflow suggested lodash)
-
-      for (const [key, value] of Object.entries(state)) {
-        this.set(key, value);
-      }
-
-      this._changing_from_server = false;
+      //       Jupyter sets a _state_lock in order to sync just the diffs later.
+      this.set(state);
     },
 
     /** Upload changes to python */
@@ -235,12 +225,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
     // Handle any server-side updates
     // TODO: Try and figure out a way to avoid infinite update loops.
     //       I dont know if anywidget does that.
-    for (const [key, value] of Object.entries(new_state)) {
-      if (m.attributes[key] !== value) {
-        // TODO: These should be m.set() calls.
-        m.set(key, value);
-      }
-    }
+    m.set_state(new_state);
   });
 
   return model;
