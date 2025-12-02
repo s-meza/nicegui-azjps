@@ -70,17 +70,18 @@ class AnyWidget(ValueElement,
             metadata={'version': __protocol_version__}
             )
 
+        # BaseComm.open() is called automatically. And that registers my comm.
         self._widget.comm = aw_comm.create_comm(self, **args)
-
-        # Okay so BaseComm.open() is called automatically. And that registers my comm.
-        # self._widget.handle_comm_opened(self._widget.comm, traits)
 
         self._should_send_update = True
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
 
         self._props['_debug'] = False  # set to True for console logging
 
+        # Sent by model.send()
         self.on('anywidget:msg', self._widget_send)
+
+        # Sent by model.save_changes()
         self.on('anywidget:save_changes', self._widget_save_changes)
 
     def _widget_send(self, content: GenericEventArguments) -> None:
