@@ -106,7 +106,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
      * Changes that have been made, should reset when uploaded to the backend
      * @type {Object<string, any>}
      */
-    _changes: {},
+    changed: {},
 
     // TODO: We can also keep track of the state diff and the state diff which has been synced.
     //  See: https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L445-L465
@@ -169,7 +169,12 @@ function createModel(on_ready, emit_to_py, log, traits) {
         throw new Error("NiceGUI-Anywidget: save_changes was called before widget was ready (was comm opened?)");
       }
 
-      log('Saving changes:', this.attributes);
+      // TODO: We could send just a diff using this.changed
+      if (Object.keys(this.changed).length === 0) {
+        return;
+      }
+
+      log('Saving changes:', this.attributes, 'changes:', this.changed);
 
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
