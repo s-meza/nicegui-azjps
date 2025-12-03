@@ -205,6 +205,10 @@ function createModel(on_ready, emit_to_py, log, traits) {
       if (this.callbacks[event]) {
         this.callbacks[event].forEach(cb => cb(...values));
       }
+
+      if (this.callbacks["all"]) {
+        this.callbacks["all"].forEach(cb => cb(event));
+      }
     },
 
     send: function (content, callbacks, buffers) {
