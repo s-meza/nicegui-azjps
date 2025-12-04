@@ -159,13 +159,6 @@ function createModel(on_ready, emit_to_py, log, traits) {
       }
 
       log('Received updated state', state);
-      // TODO: Proper handling for server updates: don't send things back when save_changes is called.
-      //       Jupyter seems to keep track of the diffs.
-      // TODO: Proper handling for recursive updates.
-
-      // TODO: Maybe send just a diff so it doesn't have to iterate over all attributes.
-      //       Jupyter seems to use underscore.js (although someone on stackoverflow suggested lodash)
-      //       Jupyter sets a _state_lock in order to sync just the diffs later.
       this.set(state);
     },
 
@@ -175,7 +168,6 @@ function createModel(on_ready, emit_to_py, log, traits) {
         throw new Error("NiceGUI-Anywidget: save_changes was called before widget was ready (was comm opened?)");
       }
 
-      // TODO: We could send just a diff using this.changed
       if (Object.keys(this.changed).length === 0) {
         return;
       }
@@ -185,6 +177,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
       // (ideally would do this to reduce communication overhead)
+      // We can use this.changed to send just a diff.
       // This should not run any model.on("change:") callbacks on the frontend.
       this._comm.send_msg('update', { state: this.attributes });
     },
@@ -235,11 +228,8 @@ function createModel(on_ready, emit_to_py, log, traits) {
   };
   model._comm.model = model;
 
-
+  // Serverside updates
   model.on("msg:update", (m, new_state) => {
-    // Handle any server-side updates
-    // TODO: Try and figure out a way to avoid infinite update loops.
-    //       I dont know if anywidget does that.
     m.set_state(new_state);
   });
 
@@ -297,7 +287,6 @@ export default {
 
         const model = createModel(on_widget_ready, emit_to_py, log, this.traits);
         this.model = model;
-       // on_widget_ready(model)
       })();
 
       load_css(this.css_content, this.traits["_anywidget_id"]);

@@ -1,4 +1,7 @@
-"""Comm implementation for anywidget elements."""
+"""
+Comm implementation for anywidget elements.
+This will hopefully not be needed once https://github.com/manzt/anywidget/pull/579 is completed.
+"""
 
 import comm
 from nicegui.element import Element
@@ -7,7 +10,7 @@ from uuid import UUID, uuid4
 def create_comm(element: Element, **kwargs):
     return Comm(element, **kwargs)
 
-# NOTE: Jupyter makes this a traitlets.config.LoggingConfigurable. Should we?
+# NOTE: Jupyter inherits traitlets.config.LoggingConfigurable but I don't think we need that.
 class Comm(comm.BaseComm):
     element: Element
     comm_id: UUID

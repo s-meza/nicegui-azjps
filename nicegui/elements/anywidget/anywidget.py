@@ -21,10 +21,16 @@ if importlib.util.find_spec('anywidget'):
     if TYPE_CHECKING:
         import anywidget
 
-
-# Current limitation: Right now this is replacing the global create_comm and createa_comm_manager machinery
-# This means that registered targets don't run. and comms cannot be created from the frontend.
-# I think we could implement the create_comm and create_comm_manager functions by adding a register_element(id, Element) method to the CommManager singleton. This way new comms made for a specific element will have their messages sent to that element, and will be able to communicate back.
+# Current limitations
+# -------------------
+# Right now we are manually replacing the comm object in widgets.
+# The expected way to work with comms is to import the module, and monkey patch create_comm and create_comm_manager.
+#  a) I don't know if we should do this. Nothing else at the moment is using comms so technically it wouldn't interfere, but still.
+#     It also means that nicegui *must* be imported before an AnyWidget is constructed.
+#  b) The comms should be associated with a NiceGUI element in order to send messages to the frontend, and I'm not too sure how to do that via create_comm.
+#     One way I see of doing this is create a comm manager (which should be a singleton) that has a method that allows us to register an element attached to a comm_id.
+#     It should probably be in a weakref. But, at the moment, comms work fine so I haven't implemented this.
+# The main reason for doing it this way is that, because they don't go through the manager, any registered targets don't run.
 
 class AnyWidget(ValueElement,
                 component='anywidget.js',
@@ -61,6 +67,8 @@ class AnyWidget(ValueElement,
 
         self._widget = widget
 
+        # We need to replace the widget's comm object in order to communicate with it.
+        # More info: https://ipywidgets.readthedocs.io/en/latest/examples/Widget%20Low%20Level.html
         # BaseComm.open() is called automatically, which sends messages to the frontend.
         self._widget.comm = aw_comm.create_comm(self, **_get_comm_kwargs(widget))
 
@@ -80,8 +88,9 @@ class AnyWidget(ValueElement,
         _ret = self._widget._msg_callbacks(self._widget, *content.args)
 
     def _widget_save_changes(self, content: GenericEventArguments) -> None:
+        """Called when model.save_changes() is called from the frontend."""
         # ipywidget.set_state handles extra keys in the dict fine.
-        # It also uses a context manager to avoid sending events back,
+        # It also uses a context manager to avoid sending events back.
         self._widget.set_state(content.args)
 
     def on_msg(self, callback, remove=False) -> None:
