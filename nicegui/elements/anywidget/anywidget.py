@@ -72,7 +72,6 @@ class AnyWidget(ValueElement,
         # BaseComm.open() is called automatically, which sends messages to the frontend.
         self._widget.comm = aw_comm.create_comm(self, **_get_comm_kwargs(widget))
 
-        self._should_send_update = True
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
 
         self._props['_debug'] = False  # set to True for console logging
@@ -134,21 +133,10 @@ class AnyWidget(ValueElement,
     def get_traits(cls, widget_instance: anywidget.AnyWidget) -> dict[str, Any]:
         """Extract the widget's current state - only get traits marked with `sync=True`"""
         sync_traits = list(widget_instance.traits(sync=True))
+
         # get_state() will access the trait values and serialize to JSON if needed
         # https://ipywidgets.readthedocs.io/en/latest/_modules/ipywidgets/widgets/widget.html#Widget.get_state
         return widget_instance.get_state(key=sync_traits)
-
-    def _handle_value_change(self, value: Any) -> None:
-        """Update the widget's state when the value changes from frontend"""
-        super()._handle_value_change(value)
-        # TODO: currently this is iterating all traits and doing extra JSON serialization.
-        # Ideally we would directly have the frontend tell us which traits have changed?
-        current_traits = self.get_traits(self._widget)
-        for key, value_ in value.items():
-            if current_traits[key] != value_:
-                setattr(self._widget, key, value_)
-        if self._send_update_on_value_change:
-            self.run_method('update_traits')
 
 def _get_comm_kwargs(widget: anywidget.AnyWidget) -> dict:
     """
