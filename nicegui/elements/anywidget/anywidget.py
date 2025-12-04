@@ -83,8 +83,8 @@ class AnyWidget(ValueElement,
         self.on('anywidget:save_changes', self._widget_save_changes)
 
     def _on_widget_msg(self, content: GenericEventArguments) -> None:
-        # TODO: Figure out what to do about the javascript callbacks
-        _ret = self._widget._msg_callbacks(self._widget, *content.args)
+        """Called when comm.send_msg() is called from the frontend."""
+        self._widget._handle_msg(content.args)
 
     def _widget_save_changes(self, content: GenericEventArguments) -> None:
         """Called when model.save_changes() is called from the frontend."""
