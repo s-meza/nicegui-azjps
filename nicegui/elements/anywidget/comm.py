@@ -26,6 +26,7 @@ class Comm(comm.BaseComm):
         # ipykernel's license is reproduced in LICENSE_IPYTHON.
         data = data if data is not None else {}
         data.update(keys)
+        content = {'data': data, 'comm_id': self.comm_id}
 
         metadata = metadata if metadata is not None else {}
 
@@ -35,8 +36,7 @@ class Comm(comm.BaseComm):
         # See: https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/schema/messages.md
         self.element.run_method('publish_msg', {
             'msg_type': msg_type,
-            'data': data,
+            'content': content,
             'metadata': metadata,
             'buffers': buffers,
-            'comm_id': self.comm_id,
         })

@@ -30,9 +30,8 @@ class Comm {
     this.comm_id = null;
   }
 
-  recv_msg({msg_type, data, metadata, buffers, comm_id}) {
-    this.log(`[${this.comm_id||"?"}] Received message:`, {msg_type, data, metadata, buffers, comm_id});
-    console.log(`[${this.comm_id||"?"}] Received message:`, {msg_type, data, metadata, buffers, comm_id});
+  recv_msg({msg_type, content: { data, comm_id }, metadata, buffers }) {
+    this.log(`[comm/${this.comm_id||"?"}] Received message:`, {msg_type, content: { data, comm_id }, metadata, buffers});
 
     if (this.comm_id != null && this.comm_id !== comm_id) {
       return;
@@ -53,13 +52,14 @@ class Comm {
             this.model.set_state(data.state);
             break;
           case "echo_update":
-            // This seems to be an implementation detail from jupyter?
-            // I think it just sends back the state in case there are multiple front ends.
+            // It's meant to send back the state in case there are multiple front ends.
             console.warn("Comm echo_update not implemented yet")
+            break;
+          case "request_state":
+            this.send_msg('update', { state: this.attributes });
             break;
           case "custom":
             this.model.emit('msg:custom', data, buffers);
-            console.warn("Comm custom not implemented yet")
             break;
         }
         // if method == update, do a model update from serverside.
@@ -72,10 +72,15 @@ class Comm {
     }
   }
 
-  send_msg(msg) {
-    // TODO: Is this correct?
-    console.log('send_msg', msg);
-    this.emit_to_py('anywidget:msg', msg);
+  send_msg(method, content, buffers) {
+    this.emit_to_py('anywidget:msg', {
+      msg_type: 'comm_msg',
+      content: {
+        comm_id: this.comm_id,
+        data: { method, ...content },
+      },
+      buffers: buffers || [],
+    });
   }
 }
 
@@ -181,7 +186,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
       // currently serializing all traits instead of just the changed ones
       // (ideally would do this to reduce communication overhead)
       // This should not run any model.on("change:") callbacks on the frontend.
-      emit_to_py('anywidget:save_changes',  this.attributes );
+      this._comm.send_msg('update', { state: this.attributes });
     },
     on: function (event, callback) {
       log('Registering callback for event:', event);
@@ -225,7 +230,7 @@ function createModel(on_ready, emit_to_py, log, traits) {
         console.warn("If you know what they're for please let me know.");
       }
 
-      emit_to_py('anywidget:send', content, buffers);
+      this._comm.send_msg('custom', { content }, buffers);
     }
   };
   model._comm.model = model;
