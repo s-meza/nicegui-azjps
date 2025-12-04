@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Tuple
 
 from nicegui.events import GenericEventArguments
-from ipywidgets.widgets.widget import _remove_buffers, __protocol_version__
+from ipywidgets.widgets.widget import _remove_buffers
 
 from contextlib import contextmanager
 
@@ -158,5 +158,7 @@ def _get_comm_kwargs(widget: anywidget.AnyWidget) -> dict:
         'target_name': 'jupyter.widget',
         'data': {'state': state, 'buffer_paths': buffer_paths},
         'buffers': buffers,
-        'metadata': {'version': __protocol_version__}
+        # See here for version information 
+        # https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/schema/messages.md
+        'metadata': {'version': "2.1.0"}
     }
