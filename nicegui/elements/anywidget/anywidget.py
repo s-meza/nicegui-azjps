@@ -97,6 +97,10 @@ class AnyWidget(ValueElement,
         Keep in mind that the callback will be called with the anywidget, not the NiceGUI element."""
         self._widget.on_msg(callback, remove=remove)
 
+    def _handle_delete(self) -> None:
+        self.run_method("on_delete")
+        super()._handle_delete()
+
     @classmethod
     def get_esm_css(cls, widget_instance: anywidget.AnyWidget) -> Tuple[str, str]:
         """Extract the widget's ESM and CSS content, reading if they are `Path` objects"""

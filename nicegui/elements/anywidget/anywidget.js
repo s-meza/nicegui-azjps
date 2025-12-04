@@ -248,6 +248,11 @@ export default {
       }
     },
 
+    on_delete() {
+      this.cleanup_widget?.();
+      this.cleanup_view?.();
+    },
+
     init_widget() {
       (async () => {
         const emit_to_py = this.$emit;
@@ -273,7 +278,6 @@ export default {
           this.$el.innerHTML = "";
           this.$el.classList.remove("nicegui-not-loaded");
 
-          // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
           this.cleanup_widget = await mod.initialize?.({ model: m });
           this.cleanup_view = await mod.render?.({ model: m, el: this.$el });
 
