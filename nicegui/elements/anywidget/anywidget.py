@@ -61,17 +61,8 @@ class AnyWidget(ValueElement,
 
         self._widget = widget
 
-        # TODO: Tidy this up
-        state, buffer_paths, buffers = _remove_buffers(self._widget.get_state())
-
-        args = dict(target_name='jupyter.widget',
-            data={'state': state, 'buffer_paths': buffer_paths},
-            buffers=buffers,
-            metadata={'version': __protocol_version__}
-            )
-
-        # BaseComm.open() is called automatically. And that registers my comm.
-        self._widget.comm = aw_comm.create_comm(self, **args)
+        # BaseComm.open() is called automatically, which sends messages to the frontend.
+        self._widget.comm = aw_comm.create_comm(self, **_get_comm_kwargs(widget))
 
         self._should_send_update = True
         self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
@@ -149,3 +140,23 @@ class AnyWidget(ValueElement,
                 setattr(self._widget, key, value_)
         if self._send_update_on_value_change:
             self.run_method('update_traits')
+
+def _get_comm_kwargs(widget: anywidget.AnyWidget) -> dict:
+    """
+    Calculates keyword arguments to pass to the comm constructor.
+
+    ipywidgets uses the global comm module functions,
+    so this is a manual copy of the widget.open() function.
+    """
+
+    # This code is based off of ipywidgets.widgets.widget.Widget.open()
+    # https://github.com/jupyter-widgets/ipywidgets/blob/72b939704a6caaef044550a8097388cf934521b4/python/ipywidgets/ipywidgets/widgets/widget.py
+    # ipywidget's license is reproduced in LICENSE_JUPYTER.
+
+    state, buffer_paths, buffers = _remove_buffers(widget.get_state())
+    return {
+        'target_name': 'jupyter.widget',
+        'data': {'state': state, 'buffer_paths': buffer_paths},
+        'buffers': buffers,
+        'metadata': {'version': __protocol_version__}
+    }

@@ -84,6 +84,7 @@ class Comm {
  * References:
  * - Marimo AFM impl:
  * https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L161-L267
+ * Marimo's license is reproduced in LICENSE_MARIMO.
  * @param {function} on_ready Callback when the widget is ready to render (i.e. state is set)
  * @param {function} emit_to_py Send a message to the python backend
  * @param {function} log Logger
