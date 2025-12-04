@@ -77,12 +77,12 @@ class AnyWidget(ValueElement,
         self._props['_debug'] = False  # set to True for console logging
 
         # Sent by model.send()
-        self.on('anywidget:msg', self._widget_send)
+        self.on('anywidget:msg', self._on_widget_msg)
 
         # Sent by model.save_changes()
         self.on('anywidget:save_changes', self._widget_save_changes)
 
-    def _widget_send(self, content: GenericEventArguments) -> None:
+    def _on_widget_msg(self, content: GenericEventArguments) -> None:
         # TODO: Figure out what to do about the javascript callbacks
         _ret = self._widget._msg_callbacks(self._widget, *content.args)
 
