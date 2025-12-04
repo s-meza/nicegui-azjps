@@ -269,8 +269,16 @@ export default {
         this._waitForComm = new Promise((resolve) => {
           on_widget_ready = resolve;
         }).then(async (m) => {
-          // Dynamically load esm_content as an ECMAScript module
-          const mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
+          let mod;
+          try {
+            // Dynamically load esm_content as an ECMAScript module
+             mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
+          } finally {
+            // We lose the stacktrace if we catch the error.
+            this.$el.innerHTML = "[NiceGUI-AnyWidget: Error loading widget (check console for details)]";
+            this.$el.classList.add("nicegui-error");
+            this.$el.classList.remove("nicegui-not-loaded");
+          }
 
           this.$el.innerHTML = "";
           this.$el.classList.remove("nicegui-not-loaded");
