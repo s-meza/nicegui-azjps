@@ -44,7 +44,7 @@ class Comm {
         }
         this.comm_id = comm_id;
         this.model.set_state(data.state);
-        // TODO: Set target name, buffer paths, buffers, metadata
+        // TODO: Store target name, buffer paths, buffers, metadata
         break;
       case "comm_msg":
         switch (data.method) {
@@ -52,8 +52,7 @@ class Comm {
             this.model.set_state(data.state);
             break;
           case "echo_update":
-            // It's meant to send back the state in case there are multiple front ends.
-            console.warn("Comm echo_update not implemented yet")
+            // In jupyter this is meant to send back the state in case there are multiple front ends.
             break;
           case "request_state":
             this.send_msg('update', { state: this.attributes });
@@ -62,9 +61,6 @@ class Comm {
             this.model.emit('msg:custom', data, buffers);
             break;
         }
-        // if method == update, do a model update from serverside.
-        // if method == echo_update, figure out what that does.
-        // if method == custom, run handlers.
         break;
       default:
         console.warn('Unknown message type:', msg_type, ' for ', {msg_type, data, metadata, buffers, comm_id});
@@ -98,13 +94,7 @@ class Comm {
 function createModel(on_ready, emit_to_py, log, traits) {
   const model = {
     /**
-     * Whether the current change was triggered by a server update.
-     * TODO: Is this necessary?
-     */
-    _changing_from_server: false,
-    /**
      * Should be true if model.set is triggering callbacks
-     * TODO: Jupyter seems to set this externally?
      * @type {boolean}
      */
     _changing: false,
@@ -114,21 +104,10 @@ function createModel(on_ready, emit_to_py, log, traits) {
      */
     changed: {},
 
-    // TODO: We can also keep track of the state diff and the state diff which has been synced.
-    //  See: https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L445-L465
-    //  See: https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L632-L655
-
-    /**
-     * State prior to backend update.
-     * https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L424-L436
-     * @type {Object<string, any>?}
-     */
-    _state_lock: null,
-
     /** @type {Comm} */
     _comm: new Comm(null, emit_to_py, log),
 
-    attributes: null, // Will wait for update message instead.
+    attributes: null, // Will wait for 'update' message instead.
     callbacks: {},
     get: function (key) {
       log('Getting value for', key, ':', this.attributes[key]);
@@ -177,9 +156,11 @@ function createModel(on_ready, emit_to_py, log, traits) {
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
       // (ideally would do this to reduce communication overhead)
-      // We can use this.changed to send just a diff.
-      // This should not run any model.on("change:") callbacks on the frontend.
+      // Could use this.changed to send just a diff.
+      // This should NOT run any model.on("change:") callbacks on the frontend.
       this._comm.send_msg('update', { state: this.attributes });
+
+      this.changed = {}
     },
     on: function (event, callback) {
       log('Registering callback for event:', event);
@@ -212,15 +193,11 @@ function createModel(on_ready, emit_to_py, log, traits) {
 
     send: function (content, callbacks, buffers) {
       if (callbacks) {
-        // I genuinely don't know what the callbacks argument is supposed to do.
-        // marimo seems to pass it to a Promise.then, but for jupyter it's a whole object
-        // with a bunch of different functions.
+        // It's not clear what the callbacks argument is supposed to do.
+        // Marimo seems to pass it to a Promise.then, jupyter takes in a whole object with different functions.
         //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
         //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
-        // Possible implementation: Attach an id to the message, save the callbacks in a Map with that id.
-        // If we receive a comm message with that id and a return value, run the callbacks.
         console.warn('model.send() callbacks are not supported in NiceGUI currently.');
-        console.warn("If you know what they're for please let me know.");
       }
 
       this._comm.send_msg('custom', { content }, buffers);
@@ -270,6 +247,7 @@ export default {
              mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
           } finally {
             // We lose the stacktrace if we catch the error.
+            // This may happen if the esm has a syntax error, for example.
             this.$el.innerHTML = "[NiceGUI-AnyWidget: Error loading widget (check console for details)]";
             this.$el.classList.add("nicegui-error");
             this.$el.classList.remove("nicegui-not-loaded");
@@ -310,9 +288,7 @@ export default {
       this._log('Updating trait:', change);
 
       if (change) {
-        this.model._changing_from_server = true;
         this.model.set(change['trait'], change['new']);
-        this.model._changing_from_server = false;
       }
     },
 

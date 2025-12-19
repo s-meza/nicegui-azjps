@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 def create_comm(element: Element, **kwargs):
     return Comm(element, **kwargs)
 
-# NOTE: Jupyter inherits traitlets.config.LoggingConfigurable but I don't think we need that.
+# NOTE: Jupyter inherits traitlets.config.LoggingConfigurable. It's unclear if we need that.
 class Comm(comm.BaseComm):
     element: Element
     comm_id: UUID
@@ -33,10 +33,8 @@ class Comm(comm.BaseComm):
 
         metadata = metadata if metadata is not None else {}
 
-        # NOTE: This doesnt 100% match the jupyter protocol, but I dont think it really needs to.
-        # See: https://jupyter-client.readthedocs.io/en/latest/messaging.html#python-api
-        # I will make it match this !!!!!!!!!!!!!!!!!!
-        # See: https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/schema/messages.md
+        # https://jupyter-client.readthedocs.io/en/latest/messaging.html#python-api
+        # https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/schema/messages.md
         self.element.run_method('publish_msg', {
             'msg_type': msg_type,
             'content': content,
