@@ -1,6 +1,7 @@
 // Core functions from anywidget's Jupyter widget implementation
 // In the future, should attempt to vendor this directly.
 // https://github.com/manzt/anywidget/blob/main/packages/anywidget/src/widget.js
+// anywidget's license is reproduced in LICENSE_ANYWIDGET.
 
 /** @import { Initialize, Render, AnyModel } from "@anywidget/types" */
 
