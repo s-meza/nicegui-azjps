@@ -54,7 +54,7 @@ class Comm {
             this.send_msg('update', { state: this.attributes });
             break;
           case "custom":
-            this.model.emit('msg:custom', data, buffers);
+            this.model.emit('msg:custom', data.content, buffers);
             break;
         }
         break;
