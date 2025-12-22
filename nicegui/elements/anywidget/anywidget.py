@@ -2,19 +2,16 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any
 
-from nicegui.events import GenericEventArguments
-from ipywidgets.widgets.widget import _remove_buffers
+# Importing this is not ideal. Maybe we could vendor it as well?
+from anywidget._util import remove_buffers
 
-from contextlib import contextmanager
-
-from . import comm as aw_comm
-
-from ... import optional_features
+from ... import helpers, optional_features
+from ...events import GenericEventArguments
 from ..mixins.value_element import ValueElement
+from . import comm as aw_comm
 
 if importlib.util.find_spec('anywidget'):
     optional_features.register('anywidget')
@@ -30,51 +27,44 @@ if importlib.util.find_spec('anywidget'):
 #  b) The comms should be associated with a NiceGUI element in order to send messages to the frontend, and I'm not too sure how to do that via create_comm.
 #     One way I see of doing this is create a comm manager (which should be a singleton) that has a method that allows us to register an element attached to a comm_id.
 #     It should probably be in a weakref. But, at the moment, comms work fine so I haven't implemented this.
-# The main reason for doing it this way is that, because they don't go through the manager, any registered targets don't run.
+#
+# An immediate disadvantage of replacing the comm manually is that, because they don't go through the comm manager, any registered targets do not run.
 
-class AnyWidget(ValueElement,
-                component='anywidget.js',
-                esm={'nicegui-anywidget': 'dist'},
-                dependencies=['widget.js', 'set-helper.js'],
-                default_classes='nicegui-anywidget'):
-
+class AnyWidget(ValueElement, component='anywidget.js', dependencies=['lib/widget.js', 'lib/set-helper.js'], esm={'nicegui-anywidget': 'dist'}):
     VALUE_PROP: str = 'traits'
 
-    def __init__(self,
-                 widget: anywidget.AnyWidget,
-                 **kwargs: Any,
-                 ) -> None:
-        """Anywidget
+    def __init__(self, widget: anywidget.AnyWidget, *, throttle: float = 0) -> None:
+        """AnyWidget
 
         `anywidget <https://anywidget.dev/en/getting-started/>`_ is a library that allows you to
         embed arbitrary JavaScript widgets in a cross-frontend friendly manner.
 
-        There are many publicly available examples of `anywidget` widgets
+        There are many publicly available examples of anywidget widgets
         in the `anywidget gallery <https://try.anywidget.dev/>`_, including
         `altair.JupyterChart <https://altair-viz.github.io/user_guide/interactions/jupyter_chart.html>`_,
         and `quak <https://github.com/manzt/quak>`_.
 
-        Implementation: The `nicegui.anywidget` element takes an `Anywidget` and observes all `sync=True` traits
+        Implementation: The ``nicegui.anywidget`` element takes an ``AnyWidget`` and observes all ``sync=True`` traits
         of the widget, trigger JS updates when the traits change.
         Conversely, changes on the frontend will be synced back to the widget,
-        using `ValueElement`'s handling to listen to changes on `traits`.
+        using ``ValueElement``'s handling to listen to changes on ``traits``.
 
-        :param widget: the `anywidget.AnyWidget` to wrap
-        :param throttle: minimum time (in seconds) between widget updates to python (default: 0.0)
+        *Added in version 3.5.0*
+
+        :param widget: the ``anywidget.AnyWidget`` to wrap
+        :param throttle: minimum time (in seconds) between widget updates to Python (default: 0.0)
         """
-        traits = self.get_traits(widget)
-        super().__init__(value=traits, **kwargs)
-
         self._widget = widget
+        self._traits = widget.traits(sync=True)
+        super().__init__(value=widget.get_state(self._traits), throttle=throttle)
+        self._props['esm_content'] = _get_attribute(widget, '_esm')
+        self._props['css_content'] = _get_attribute(widget, '_css')
+        self._widget.observe(lambda change: self.run_method('update_trait', change['name'], change['new']), self._traits)
 
         # We need to replace the widget's comm object in order to communicate with it.
         # More info: https://ipywidgets.readthedocs.io/en/latest/examples/Widget%20Low%20Level.html
         # BaseComm.open() is called automatically, which sends messages to the frontend.
         self._widget.comm = aw_comm.create_comm(self, **_get_comm_kwargs(widget))
-
-        self._props['esm_content'], self._props['css_content'] = self.get_esm_css(widget)
-
-        self._props['_debug'] = False  # set to True for console logging
 
         # Sent by model.send()
         self.on('anywidget:msg', self._on_widget_msg)
@@ -84,6 +74,7 @@ class AnyWidget(ValueElement,
 
     def _on_widget_msg(self, content: GenericEventArguments) -> None:
         """Called when comm.send_msg() is called from the frontend."""
+        # pylint: disable=protected-access
         self._widget._handle_msg(content.args)
 
     def _widget_save_changes(self, content: GenericEventArguments) -> None:
@@ -94,53 +85,32 @@ class AnyWidget(ValueElement,
 
     def on_msg(self, callback, remove=False) -> None:
         """Register the callback with this instance's anywidget.
-        Keep in mind that the callback will be called with the anywidget, not the NiceGUI element."""
+        Keep in mind that the callback will be called with the AnyWidget, not the NiceGUI element."""
         self._widget.on_msg(callback, remove=remove)
 
     def _handle_delete(self) -> None:
-        self.run_method("on_delete")
+        self.run_method('on_delete')
         super()._handle_delete()
 
-    @classmethod
-    def get_esm_css(cls, widget_instance: anywidget.AnyWidget) -> Tuple[str, str]:
-        """Extract the widget's ESM and CSS content, reading if they are `Path` objects"""
-        # Get the ESM module content
-        esm_content = getattr(widget_instance, '_esm')
+    def _handle_value_change(self, value: Any) -> None:
+        """Update the widget's state when the value changes from frontend"""
+        super()._handle_value_change(value)
+        state = self._widget.get_state(self._traits)
+        for key, value_ in value.items():
+            if state[key] != value_:
+                setattr(self._widget, key, value_)
 
-        # Check if ESM content is a property function (sometimes the case in anywidget)
-        if callable(esm_content) and not inspect.isclass(esm_content):
-            esm_content = esm_content()
 
-        # Get CSS content if available
-        css_content = None
-        if hasattr(widget_instance, '_css'):
-            css_attr = getattr(widget_instance, '_css')
-            if callable(css_attr) and not inspect.isclass(css_attr):
-                css_content = css_attr()
-            else:
-                css_content = css_attr
-
-        if isinstance(esm_content, str) and os.path.exists(esm_content):
-            esm_content = Path(esm_content)
-        if isinstance(css_content, str) and os.path.exists(css_content):
-            css_content = Path(css_content)
-
-        if isinstance(esm_content, os.PathLike):
-            with open(esm_content, 'r') as f:
-                esm_content = f.read()
-        if isinstance(css_content, os.PathLike):
-            with open(css_content, 'r') as f:
-                css_content = f.read()
-        return esm_content or '', css_content or ''
-
-    @classmethod
-    def get_traits(cls, widget_instance: anywidget.AnyWidget) -> dict[str, Any]:
-        """Extract the widget's current state - only get traits marked with `sync=True`"""
-        sync_traits = list(widget_instance.traits(sync=True))
-
-        # get_state() will access the trait values and serialize to JSON if needed
-        # https://ipywidgets.readthedocs.io/en/latest/_modules/ipywidgets/widgets/widget.html#Widget.get_state
-        return widget_instance.get_state(key=sync_traits)
+def _get_attribute(obj: object, name: str) -> str:
+    """Extract the attribute's content, reading if it is a path to a file."""
+    content = getattr(obj, name, '')
+    if callable(content) and not inspect.isclass(content):  # content is a property function
+        content = content()
+    assert isinstance(content, (str, Path)), f'Attribute {name} is not a string or Path'
+    if helpers.is_file(content):
+        content = Path(content).read_text(encoding='utf8')
+    assert isinstance(content, str), f'Attribute {name} is a Path but does not exist'
+    return content
 
 def _get_comm_kwargs(widget: anywidget.AnyWidget) -> dict:
     """
@@ -154,12 +124,12 @@ def _get_comm_kwargs(widget: anywidget.AnyWidget) -> dict:
     # https://github.com/jupyter-widgets/ipywidgets/blob/72b939704a6caaef044550a8097388cf934521b4/python/ipywidgets/ipywidgets/widgets/widget.py
     # ipywidget's license is reproduced in LICENSE_JUPYTER.
 
-    state, buffer_paths, buffers = _remove_buffers(widget.get_state())
+    state, buffer_paths, buffers = remove_buffers(widget.get_state())
     return {
         'target_name': 'jupyter.widget',
         'data': {'state': state, 'buffer_paths': buffer_paths},
         'buffers': buffers,
-        # See here for version information 
+        # See here for version information
         # https://github.com/jupyter-widgets/ipywidgets/blob/main/packages/schema/messages.md
-        'metadata': {'version': "2.1.0"}
+        'metadata': {'version': '2.1.0'}
     }

@@ -1,5 +1,5 @@
-import { load_widget, load_css } from "widget";  // lib/anywidget/widget.js
-import { convertDynamicProperties } from "../../static/utils/dynamic_properties.js";
+import { load_widget, load_css } from "widget";
+import { cleanObject } from "../../static/utils/json.js";
 import { set as set_helper } from "set-helper";
 
 /**
@@ -13,7 +13,6 @@ import { set as set_helper } from "set-helper";
  *
  * @property {Object} model
  * @property {(eventType: string, ...args: any[]) => void} emit_to_py E.g. this.$emit
- * @property {(...args: any[]) => void} log
  * @property {string|null} comm_id Null until updated by the server
  */
 class Comm {
@@ -21,17 +20,14 @@ class Comm {
    * Create a new Comm instance.
    * @param {Object} model
    * @param {(eventType: string, ...args: any[]) => void} emit_to_py E.g. this.$emit
-   * @param {null|(...args: any[]) => void} log
    */
-  constructor(model, emit_to_py, log) {
+  constructor(model, emit_to_py) {
     this.model = model;
     this.emit_to_py = emit_to_py;
-    this.log = log || (()=>{});
     this.comm_id = null;
   }
 
   recv_msg({msg_type, content: { data, comm_id }, metadata, buffers }) {
-    this.log(`[comm/${this.comm_id||"?"}] Received message:`, {msg_type, content: { data, comm_id }, metadata, buffers});
 
     if (this.comm_id != null && this.comm_id !== comm_id) {
       return;
@@ -88,10 +84,9 @@ class Comm {
  * Marimo's license is reproduced in LICENSE_MARIMO.
  * @param {function} on_ready Callback when the widget is ready to render (i.e. state is set)
  * @param {function} emit_to_py Send a message to the python backend
- * @param {function} log Logger
  * @returns An AFM object
  */
-function createModel(on_ready, emit_to_py, log, traits) {
+function createModel(on_ready, emit_to_py, traits) {
   const model = {
     /**
      * Should be true if model.set is triggering callbacks
@@ -105,31 +100,19 @@ function createModel(on_ready, emit_to_py, log, traits) {
     changed: {},
 
     /** @type {Comm} */
-    _comm: new Comm(null, emit_to_py, log),
+    _comm: new Comm(null, emit_to_py),
 
     attributes: null, // Will wait for 'update' message instead.
     callbacks: {},
-    get: function (key) {
-      log('Getting value for', key, ':', this.attributes[key]);
-
-      const value = this.attributes[key];
-      try {
-        // TODO: this should not be necessary but was running into some
-        // JavaScript issues that haven't tried to figure out
-        return JSON.parse(JSON.stringify(value));
-      } catch (e) {
-        // If value is not serializable, return null or a fallback render widget until we have a connection from the server.
-        console.warn('NiceGUI-Anywidget: Value for key', key, 'is not JSON-serializable:', value);
-        return null;
-      }
+    get(key) {
+      return cleanObject(this.attributes[key]);
     },
 
-    set: function (key, value) {
-      const ret = set_helper(this, key, value);
-      return ret;
+    set(key, value) {
+      return set_helper(this, key, value);
     },
 
-    set_state: function (state) {
+    set_state(state) {
       // Initial server state.
       if (this.attributes === null) {
         this.attributes = { ...state };
@@ -137,12 +120,11 @@ function createModel(on_ready, emit_to_py, log, traits) {
         return;
       }
 
-      log('Received updated state', state);
       this.set(state);
     },
 
     /** Upload changes to python */
-    save_changes: function () {
+    save_changes() {
       if (this.attributes === null) {
         throw new Error("NiceGUI-Anywidget: save_changes was called before widget was ready (was comm opened?)");
       }
@@ -150,8 +132,6 @@ function createModel(on_ready, emit_to_py, log, traits) {
       if (Object.keys(this.changed).length === 0) {
         return;
       }
-
-      log('Saving changes:', this.attributes, 'changes:', this.changed);
 
       // Propagate the change back to python backend;
       // currently serializing all traits instead of just the changed ones
@@ -162,42 +142,27 @@ function createModel(on_ready, emit_to_py, log, traits) {
 
       this.changed = {}
     },
-    on: function (event, callback) {
-      log('Registering callback for event:', event);
-      if (!this.callbacks[event]) {
-        this.callbacks[event] = [];
-      }
+    on(event, callback) {
+      if (!this.callbacks[event]) this.callbacks[event] = [];
       this.callbacks[event].push(callback);
     },
-    off: function (event, callback) {
-      if (!event) {
-        this.callbacks = {};
-        return;
-      }
-      if (!callback) {
-        this.callbacks[event] = [];
-        return;
-      }
-      this.callbacks[event]?.delete(callback);
+    off(event, callback) {
+      if (!event) this.callbacks = {};
+      else if (!callback) this.callbacks[event] = [];
+      else this.callbacks[event]?.delete(callback);
+    },
+    emit(event, ...values) {
+      this.callbacks[event]?.forEach(cb => cb(...values));
+      this.callbacks["all"]?.forEach(cb => cb(event));
     },
 
-    emit: function (event, ...values) {
-      if (this.callbacks[event]) {
-        this.callbacks[event].forEach(cb => cb(...values));
-      }
-
-      if (this.callbacks["all"]) {
-        this.callbacks["all"].forEach(cb => cb(event));
-      }
-    },
-
-    send: function (content, callbacks, buffers) {
+    send(content, callbacks, buffers) {
       if (callbacks) {
         // It's not clear what the callbacks argument is supposed to do.
         // Marimo seems to pass it to a Promise.then, jupyter takes in a whole object with different functions.
         //  - https://github.com/marimo-team/marimo/blob/7f3023ff0caef22b2bf4c1b5a18ad1899bd40fa3/frontend/src/plugins/impl/anywidget/AnyWidgetPlugin.tsx#L192
         //  - https://github.com/jupyter-widgets/ipywidgets/blob/b24fa6be5a289a23dd82eedcecbf6603ddbe2c0a/packages/base/src/widget.ts#L592
-        console.warn('model.send() callbacks are not supported in NiceGUI currently.');
+        console.warn('model.send() with callbacks is not supported in NiceGUI currently.');
       }
 
       this._comm.send_msg('custom', { content }, buffers);
@@ -215,14 +180,50 @@ function createModel(on_ready, emit_to_py, log, traits) {
 
 export default {
   template: '<div class="nicegui-not-loaded">[NiceGUI-AnyWidget: Waiting for backend connection...]</div>',
-  mounted() {
-    this.init_widget();
+  async mounted() {
+    const emit_to_py = this.$emit;
+
+    let on_widget_ready;
+
+    // Don't render widget until we have a connection from the server.
+    this._waitForComm = new Promise((resolve) => {
+      // This should run immediately
+      on_widget_ready = resolve;
+    }).then(async (m) => {
+      let mod;
+      try {
+        // Dynamically load esm_content as an ECMAScript module
+         mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
+      } finally {
+        // We lose the stacktrace if we catch the error.
+        // This may happen if the esm has a syntax error, for example.
+        this.$el.innerHTML = "[NiceGUI-AnyWidget: Error loading widget (check console for details)]";
+        this.$el.classList.add("nicegui-error");
+        this.$el.classList.remove("nicegui-not-loaded");
+      }
+
+      this.$el.innerHTML = "";
+      this.$el.classList.remove("nicegui-not-loaded");
+
+      this.cleanup_widget = await mod.initialize?.({ model: m });
+      this.cleanup_view = await mod.render?.({ model: m, el: this.$el });
+
+      this._waitForComm = null;
+      on_widget_ready = null;
+    });
+
+    if (!on_widget_ready) {
+      throw new Error("Promise executor did not run");
+    }
+
+    const model = createModel(on_widget_ready, emit_to_py, this.traits);
+    this.model = model;
+
+    load_css(this.css_content, this.traits["_anywidget_id"]);
   },
   methods: {
-    _log(...args) {
-      if (this._debug) {
-        console.log("NiceGUI-Anywidget", ...args);
-      }
+    update_trait(trait, value) {
+      this.model.set(trait, value);
     },
 
     on_delete() {
@@ -230,76 +231,10 @@ export default {
       this.cleanup_view?.();
     },
 
-    init_widget() {
-      (async () => {
-        const emit_to_py = this.$emit;
-        const log = this._log;
-
-        let on_widget_ready;
-
-        // Don't render widget until we have a connection from the server.
-        this._waitForComm = new Promise((resolve) => {
-          on_widget_ready = resolve;
-        }).then(async (m) => {
-          let mod;
-          try {
-            // Dynamically load esm_content as an ECMAScript module
-             mod = await load_widget(this.esm_content, this.traits["_anywidget_id"]);
-          } finally {
-            // We lose the stacktrace if we catch the error.
-            // This may happen if the esm has a syntax error, for example.
-            this.$el.innerHTML = "[NiceGUI-AnyWidget: Error loading widget (check console for details)]";
-            this.$el.classList.add("nicegui-error");
-            this.$el.classList.remove("nicegui-not-loaded");
-          }
-
-          this.$el.innerHTML = "";
-          this.$el.classList.remove("nicegui-not-loaded");
-
-          this.cleanup_widget = await mod.initialize?.({ model: m });
-          this.cleanup_view = await mod.render?.({ model: m, el: this.$el });
-
-          this._waitForComm = null;
-          on_widget_ready = null;
-        });
-
-        if (!on_widget_ready) {
-          throw new Error("Promise executor did not run");
-        }
-
-        const model = createModel(on_widget_ready, emit_to_py, log, this.traits);
-        this.model = model;
-      })();
-
-      load_css(this.css_content, this.traits["_anywidget_id"]);
-
+    update_trait(trait, value) {
+        this.model.set(trait, value);
     },
 
-    /**
-     * Callback from Python traitlet backend change event
-     * @param {Object} change
-     * @param {string} change.trait
-     * @param {any} change.new
-     * @param {any} change.old
-     */
-    update_trait(change) {
-      convertDynamicProperties(change, true);
-
-      this._log('Updating trait:', change);
-
-      if (change) {
-        this.model.set(change['trait'], change['new']);
-      }
-    },
-
-    update_traits() {
-      // Currently no-op
-      this._log('Updating traits:', this.traits, this.model.attributes);
-    },
-    handle_event(type, args) {
-      // Currently unused
-      this._log('handle_event', type, args);
-    },
     publish_msg(msg) {
       this.model._comm.recv_msg(msg)
     }
@@ -308,6 +243,5 @@ export default {
     traits: Object,
     esm_content: String,
     css_content: String,
-    _debug: Boolean,
   },
 };

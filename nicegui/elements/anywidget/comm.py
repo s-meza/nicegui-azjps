@@ -3,17 +3,25 @@ Comm implementation for anywidget elements.
 This will hopefully not be needed once https://github.com/manzt/anywidget/pull/579 is completed.
 """
 
+from uuid import uuid4
+
 import comm
+
 from nicegui.element import Element
-from uuid import UUID, uuid4
+
 
 def create_comm(element: Element, **kwargs):
+    """
+    Constructs a comm object.
+    This exists for possible future compatibility with global comm registration.
+    See https://pypi.org/project/comm/
+    """
     return Comm(element, **kwargs)
 
 # NOTE: Jupyter inherits traitlets.config.LoggingConfigurable. It's unclear if we need that.
 class Comm(comm.BaseComm):
     element: Element
-    comm_id: UUID
+    comm_id: str
 
     def __init__(self, element: Element, **kwargs):
         # super's init tries to call self.publish_msg so we must set element beforehand.
