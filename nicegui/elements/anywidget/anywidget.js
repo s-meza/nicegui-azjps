@@ -45,7 +45,7 @@ export default {
 
     // Dynamically load esm_content as an ECMAScript module
     const mod = await load_widget(this.esm_content, this.traits._anywidget_id);
-    // TODO: cleanup_widget and cleanup_view should be called when the widget is destroyed
+
     this.cleanup_widget = await mod.initialize?.({ model: this.model });
     this.cleanup_view = await mod.render?.({ model: this.model, el: this.$el });
 
@@ -54,6 +54,10 @@ export default {
   methods: {
     update_trait(trait, value) {
       this.model.set(trait, value);
+    },
+    on_delete() {
+      this.cleanup_view?.();
+      this.cleanup_widget?.();
     },
   },
   props: {

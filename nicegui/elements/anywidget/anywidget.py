@@ -53,6 +53,10 @@ class AnyWidget(ValueElement, component='anywidget.js', dependencies=['lib/widge
             if state[key] != value_:
                 setattr(self._widget, key, value_)
 
+    def _handle_delete(self) -> None:
+        self.run_method("on_delete")
+        super()._handle_delete()
+
 
 def _get_attribute(obj: object, name: str) -> str:
     """Extract the attribute's content, reading if it is a path to a file."""
